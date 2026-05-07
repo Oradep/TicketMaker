@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Генератор билетов P24</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f8f9fa; }
+        .preview-box { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .editor-container { max-height: 500px; overflow-y: auto; background: #fff; }
+        .accordion-button { font-size: 14px; font-weight: 600; padding: 10px 15px; }
+        .editor-label { font-size: 11px; text-transform: uppercase; color: #6c757d; font-weight: 600; margin-bottom: 2px; }
+        .is-updating { opacity: 0.5; transition: opacity 0.2s; }
+    </style>
+</head>
+<body>
+
+<div class="container-fluid mt-4 mb-5 px-4">
+    <h2 class="mb-4 text-center">Генерация билета P24</h2>
+    
+    <div class="row">
+        <!-- ЛЕВАЯ КОЛОНКА -->
+        <div class="col-lg-3 mb-4">
+            
+            <div class="card shadow-sm mb-3 border-dark">
+                <div class="card-body">
+                    <h5 class="mb-3">Шаг 1: Загрузка</h5>
+                    <form id="fetchForm">
+                        <div class="mb-3">
+                            <input type="url" id="movieUrl" class="form-control" placeholder="https://widget.p24.app/..." required>
+                        </div>
+                        <button type="submit" class="btn btn-dark w-100 fw-bold" id="fetchBtn">Спарсить страницу</button>
+                    </form>
+                </div>
+            </div>
+
+            <div class="card shadow-sm mb-3" id="step2Block" style="display: none;">
+                <div class="card-body">
+                    <h5 class="mb-3">Шаг 2: Данные</h5>
+                    
+                    <div class="d-flex align-items-center mb-3 p-2 bg-light rounded border">
+                        <img id="parsedPoster" src="" style="width: 45px; height: 65px; object-fit: cover; border-radius: 4px;" class="me-2">
+                        <div>
+                            <strong id="parsedTitle" class="d-block" style="font-size: 13px;"></strong>
+                            <small id="parsedInfo" class="text-muted" style="font-size: 11px;"></small>
+                        </div>
+                    </div>
+
+                    <form id="ticketForm">
+                        <div class="mb-3">
+                            <label class="editor-label">Выберите сеанс</label>
+                            <select id="sessionSelect" class="form-select form-select-sm" required></select>
+                        </div>
+
+                        <div class="row g-2 mb-2">
+                            <div class="col-6">
+                                <label class="editor-label">Ряд</label>
+                                <input type="number" id="inpRow" class="form-control form-control-sm" value="1" required>
+                            </div>
+                            <div class="col-6">
+                                <label class="editor-label">Место</label>
+                                <input type="number" id="inpSeat" class="form-control form-control-sm" value="10" required>
+                            </div>
+                        </div>
+
+                        <div class="mb-2"><input type="text" id="inpName" class="form-control form-control-sm" placeholder="ФИО (Иванов И.И.)" required></div>
+                        <div class="mb-2"><input type="email" id="inpEmail" class="form-control form-control-sm" placeholder="Email" required></div>
+                        <div class="mb-3"><input type="text" id="inpPhone" class="form-control form-control-sm" placeholder="Телефон" required></div>
+                        
+                        <button type="submit" class="btn btn-primary w-100 fw-bold" id="generateBtn">Отрисовать билет</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- ЦЕНТРАЛЬНАЯ КОЛОНКА (Редактор) -->
+        <div class="col-lg-4 mb-4">
+            <div class="card shadow-sm border-primary h-100">
+                <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0">⚙️ Визуальный редактор шаблона</h6>
+                </div>
+                <div class="card-body p-0 editor-container" id="editorAccordionContainer">
+                    <div class="accordion accordion-flush" id="editorAccordion">
+                        <!-- JS генерирует поля сюда -->
+                    </div>
+                </div>
+                <div class="card-footer bg-light p-2">
+                    <button type="button" class="btn btn-outline-success btn-sm w-100 fw-bold" onclick="copyPresetAsPython()">
+                        📋 Скопировать код для app.py
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ПРАВАЯ КОЛОНКА (Превью) -->
+        <div class="col-lg-5">
+            <div class="preview-box text-center h-100 d-flex flex-column justify-content-center align-items-center" style="min-height: 500px; background: repeating-linear-gradient(45deg, #f0f0f0, #f0f0f0 10px, #fafafa 10px, #fafafa 20px);">
+                
+                <div id="placeholderText" class="text-muted bg-white p-3 rounded shadow-sm border">
+                    <p class="mb-0">1. Спарсите фильм слева.<br>2. Нажмите "Отрисовать билет".<br>3. Редактируйте макет по центру, билет будет обновляться сам.</p>
+                </div>
+
+                <div id="loading" style="display: none;" class="bg-white p-4 rounded shadow-sm border">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <p class="mt-2 text-muted fw-bold mb-0" id="loadingText">Обработка...</p>
+                </div>
+
+                <div id="previewArea" style="display: none; width: 100%;">
+                    <img id="ticketPreview" class="img-fluid border rounded mb-3 shadow" alt="Билет" style="max-height: 80vh; object-fit: contain;">
+                    <a id="downloadBtn" class="btn btn-success py-2 w-100 fw-bold shadow" download="ticket.png">⬇ Скачать готовый билет</a>
+                </div>
+
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Получаем оригинальный пресет напрямую без HTML-кодировок
+    let currentPreset = {{ preset_json | safe }};
+    let globalMovieData = {};
+    let isTicketGenerated = false;
+    let redrawTimeout = null;
+
+    const namesMap = {
+        'poster': '🖼 Обложка', 'title': '📝 Название', 'year_genres': '📅 Жанры',
+        'duration': '⏱ Длительность', 'age': '🔞 Возраст (12+)', 'time': '⏰ Время',
+        'date': '📆 Дата', 'weekday': '🗓 День', 'hall': '🏢 Зал',
+        'row_seat': '🪑 Ряд/место', 'price': '💳 Цена 1 билета', 'total': '🏷 "Итого"',
+        'total_price': '💰 Сумма', 'pushkin': '🏛 Пушкинская карта',
+        'fio': '👤 ФИО', 'email': '✉️ Email', 'phone': '📞 Телефон',
+        'qr_box': '⬜ Фон QR', 'qr_code': '🔢 Цифры под QR'
+    };
+
+    function initEditor() {
+        const accordion = document.getElementById('editorAccordion');
+        let html = '';
+
+        for (let key in currentPreset) {
+            let item = currentPreset[key];
+            let name = namesMap[key] || key;
+
+            let sizeHtml = '';
+            if (Array.isArray(item.size)) {
+                sizeHtml = `
+                    <div class="col-6"><label class="editor-label">Ширина</label><input type="number" class="form-control form-control-sm" value="${item.size[0]}" oninput="updateVal('${key}', 'size', 0, this.value)"></div>
+                    <div class="col-6"><label class="editor-label">Высота</label><input type="number" class="form-control form-control-sm" value="${item.size[1]}" oninput="updateVal('${key}', 'size', 1, this.value)"></div>
+                `;
+            } else if (typeof item.size === 'number') {
+                sizeHtml = `<div class="col-12"><label class="editor-label">Размер</label><input type="number" class="form-control form-control-sm" value="${item.size}" oninput="updateVal('${key}', 'size', null, this.value)"></div>`;
+            }
+
+            let textHtml = '';
+            if (item.font_size !== undefined) {
+                textHtml = `
+                    <div class="mt-3 mb-2 border-bottom pb-1 fw-bold" style="font-size: 13px;">Текст</div>
+                    <div class="row g-2 mb-2">
+                        <div class="col-6"><label class="editor-label">Размер шрифта</label><input type="number" class="form-control form-control-sm" value="${item.font_size}" oninput="updateVal('${key}', 'font_size', null, this.value)"></div>
+                        <div class="col-6"><label class="editor-label">Цвет</label><input type="text" class="form-control form-control-sm" value="${item.color}" oninput="updateVal('${key}', 'color', null, this.value)"></div>
+                    </div>
+                    <div class="form-check mt-1">
+                        <input class="form-check-input" type="checkbox" id="bold_${key}" ${item.bold ? 'checked' : ''} onchange="updateVal('${key}', 'bold', null, this.checked)">
+                        <label class="form-check-label editor-label" for="bold_${key}" style="margin-top: 3px;">Сделать жирным</label>
+                    </div>
+                `;
+            }
+
+            html += `
+            <div class="accordion-item">
+                <h2 class="accordion-header" id="heading_${key}">
+                    <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapse_${key}">
+                        ${name}
+                    </button>
+                </h2>
+                <div id="collapse_${key}" class="accordion-collapse collapse" data-bs-parent="#editorAccordion">
+                    <div class="accordion-body bg-light p-3 border-bottom">
+                        
+                        <div class="mb-2 border-bottom pb-1 fw-bold" style="font-size: 13px;">Координаты элемента</div>
+                        <div class="row g-2 mb-2">
+                            <div class="col-6"><label class="editor-label">X (слева)</label><input type="number" class="form-control form-control-sm" value="${item.pos[0]}" oninput="updateVal('${key}', 'pos', 0, this.value)"></div>
+                            <div class="col-6"><label class="editor-label">Y (сверху)</label><input type="number" class="form-control form-control-sm" value="${item.pos[1]}" oninput="updateVal('${key}', 'pos', 1, this.value)"></div>
+                        </div>
+                        <div class="row g-2 mb-2">${sizeHtml}</div>
+
+                        <div class="mt-3 mb-2 border-bottom pb-1 fw-bold" style="font-size: 13px;">Маска (Прячет старый текст)</div>
+                        <div class="row g-2 mb-2">
+                            <div class="col-3"><label class="editor-label">X1</label><input type="number" class="form-control form-control-sm" value="${item.mask[0]}" oninput="updateVal('${key}', 'mask', 0, this.value)"></div>
+                            <div class="col-3"><label class="editor-label">Y1</label><input type="number" class="form-control form-control-sm" value="${item.mask[1]}" oninput="updateVal('${key}', 'mask', 1, this.value)"></div>
+                            <div class="col-3"><label class="editor-label">X2</label><input type="number" class="form-control form-control-sm" value="${item.mask[2]}" oninput="updateVal('${key}', 'mask', 2, this.value)"></div>
+                            <div class="col-3"><label class="editor-label">Y2</label><input type="number" class="form-control form-control-sm" value="${item.mask[3]}" oninput="updateVal('${key}', 'mask', 3, this.value)"></div>
+                        </div>
+                        <div class="mb-2">
+                            <label class="editor-label">Цвет заливки (HEX)</label>
+                            <input type="text" class="form-control form-control-sm" value="${item.bg}" oninput="updateVal('${key}', 'bg', null, this.value)">
+                        </div>
+                        ${textHtml}
+                    </div>
+                </div>
+            </div>`;
+        }
+        accordion.innerHTML = html;
+    }
+
+    // Обновление значения и вызов живой отрисовки
+    function updateVal(key, prop, index, val) {
+        let actualVal = val;
+        
+        // Преобразуем числа
+        if (prop === 'font_size' || prop === 'size' || index !== null) {
+            actualVal = Number(val);
+        }
+
+        if (index !== null) {
+            currentPreset[key][prop][index] = actualVal;
+        } else {
+            currentPreset[key][prop] = actualVal;
+        }
+
+        // LIVE-RELOAD (запускаем генерацию без нажатия кнопки)
+        if (isTicketGenerated) {
+            clearTimeout(redrawTimeout);
+            redrawTimeout = setTimeout(() => {
+                document.getElementById('ticketPreview').classList.add('is-updating');
+                generateTicketAPI(true); // true означает, что это тихая фоновая перерисовка
+            }, 300);
+        }
+    }
+
+    // Запасной метод копирования для работы без HTTPS
+    function fallbackCopyTextToClipboard(text) {
+        let textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-999999px";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        try {
+            document.execCommand('copy');
+            alert('✅ УСПЕШНО!\nСловарь скопирован.\n\nЗайдите в app.py и замените блок TICKET_PRESET = {...} на скопированный.');
+        } catch (err) {
+            alert('❌ Не удалось скопировать.');
+        }
+        document.body.removeChild(textArea);
+    }
+
+    function copyPresetAsPython() {
+        let pythonText = "TICKET_PRESET = " + JSON.stringify(currentPreset, null, 4)
+            .replace(/:\s*true/g, ': True')
+            .replace(/:\s*false/g, ': False')
+            .replace(/:\s*null/g, ': None');
+        
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(pythonText).then(() => {
+                alert('✅ УСПЕШНО!\nСловарь скопирован.\n\nЗайдите в app.py и замените блок TICKET_PRESET = {...} на скопированный.');
+            }).catch(() => fallbackCopyTextToClipboard(pythonText));
+        } else {
+            fallbackCopyTextToClipboard(pythonText);
+        }
+    }
+
+    initEditor();
+
+    // ШАГ 1: Парсинг
+    document.getElementById('fetchForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const url = document.getElementById('movieUrl').value;
+        const fetchBtn = document.getElementById('fetchBtn');
+        const loading = document.getElementById('loading');
+        
+        fetchBtn.disabled = true;
+        document.getElementById('step2Block').style.display = 'none';
+        document.getElementById('placeholderText').style.display = 'none';
+        document.getElementById('previewArea').style.display = 'none';
+        
+        document.getElementById('loadingText').innerText = "Получаем расписание с сайта...";
+        loading.style.display = 'block';
+
+        try {
+            const res = await fetch('/api/fetch-info', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ url })
+            });
+
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "Ошибка загрузки");
+
+            globalMovieData = data;
+
+            document.getElementById('parsedTitle').innerText = `${data.title} ${data.age}`;
+            document.getElementById('parsedInfo').innerText = `${data.year_genres} • ${data.duration}`;
+            document.getElementById('parsedPoster').src = data.poster_url;
+
+            const select = document.getElementById('sessionSelect');
+            select.innerHTML = '';
+            data.sessions.forEach(sess => {
+                const opt = document.createElement('option');
+                opt.value = sess.id;
+                opt.textContent = `${sess.date} (${sess.weekday}) — ${sess.time} — ${sess.price}`;
+                select.appendChild(opt);
+            });
+
+            document.getElementById('step2Block').style.display = 'block';
+            document.getElementById('placeholderText').style.display = 'block';
+            document.getElementById('placeholderText').innerHTML = '<p class="mb-0 text-success fw-bold">Успешно! Выберите нужный сеанс и нажмите "Отрисовать".</p>';
+
+        } catch (err) {
+            alert(err.message);
+            document.getElementById('placeholderText').style.display = 'block';
+        }
+
+        loading.style.display = 'none';
+        fetchBtn.disabled = false;
+    });
+
+    // ШАГ 2: Генерация
+    document.getElementById('ticketForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        isTicketGenerated = true; // Открывает возможность Live-перерисовки
+        await generateTicketAPI(false);
+    });
+
+    // Главная функция вызова API
+    async function generateTicketAPI(isSilent = false) {
+        const btn = document.getElementById('generateBtn');
+        const loading = document.getElementById('loading');
+        
+        if (!isSilent) {
+            btn.disabled = true;
+            document.getElementById('placeholderText').style.display = 'none';
+            document.getElementById('previewArea').style.display = 'none';
+            document.getElementById('loadingText').innerText = "Рисуем билет...";
+            loading.style.display = 'block';
+        }
+
+        const selectedId = document.getElementById('sessionSelect').value;
+        const sessionData = globalMovieData.sessions.find(s => s.id === selectedId);
+
+        const payload = {
+            title: globalMovieData.title,
+            age: globalMovieData.age,
+            poster_url: globalMovieData.poster_url,
+            year_genres: globalMovieData.year_genres,
+            duration: globalMovieData.duration,
+            date: sessionData.date,
+            weekday: sessionData.weekday,
+            time: sessionData.time,
+            price: sessionData.price,
+            row: document.getElementById('inpRow').value,
+            seat: document.getElementById('inpSeat').value,
+            name: document.getElementById('inpName').value,
+            email: document.getElementById('inpEmail').value,
+            phone: document.getElementById('inpPhone').value,
+            preset: currentPreset
+        };
+
+        try {
+            const res = await fetch('/api/generate-ticket', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+
+            if (!res.ok) throw new Error("Ошибка генерации");
+
+            const blob = await res.blob();
+            const objectUrl = URL.createObjectURL(blob);
+            
+            document.getElementById('ticketPreview').src = objectUrl;
+            document.getElementById('downloadBtn').href = objectUrl;
+            document.getElementById('previewArea').style.display = 'block';
+
+        } catch (err) {
+            if(!isSilent) alert(err.message);
+        }
+
+        if (!isSilent) {
+            loading.style.display = 'none';
+            btn.disabled = false;
+        } else {
+            document.getElementById('ticketPreview').classList.remove('is-updating');
+        }
+    }
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
